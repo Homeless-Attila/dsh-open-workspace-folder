@@ -1,0 +1,65 @@
+{
+  "name": "dsh-open-workspace-folder",
+  "version": "1.0.0",
+  "description": "Right-click any workspace in DSH Desktop to open its folder in the system file manager. 在 DSH Desktop 中右键工作区，直接打开对应的本地文件夹。",
+  "license": "MIT",
+  "author": "Homeless-Attila",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "default": "./index.js"
+    },
+    "./client": {
+      "default": "./client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE",
+    "docs"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Homeless-Attila/dsh-open-workspace-folder.git"
+  },
+  "homepage": "https://github.com/Homeless-Attila/dsh-open-workspace-folder#readme",
+  "bugs": {
+    "url": "https://github.com/Homeless-Attila/dsh-open-workspace-folder/issues"
+  },
+  "scripts": {
+    "check": "node --check index.js && node --check client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-gateway",
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
+    }
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "workspace",
+    "context-menu",
+    "right-click",
+    "explorer"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

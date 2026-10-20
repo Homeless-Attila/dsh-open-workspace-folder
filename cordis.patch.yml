@@ -1,0 +1,7 @@
+# dsh-open-workspace-folder
+# A composable DSH bundle. The host half is intentionally empty: the plugin
+# only needs the browser shell, where it calls the built-in Session Remote to
+# open a workspace path on the machine running DSH.
+- insert:
+    - id: dsh-open-workspace-folder
+      name: dsh-open-workspace-folder

@@ -1,0 +1,13 @@
+# dependencies
+node_modules/
+
+# release artifacts
+*.tgz
+*.zip
+
+# editor / OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
