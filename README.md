@@ -1,17 +1,21 @@
 # dsh-open-workspace-folder
 
-在 **DSH Desktop** 的工作区列表里右键任意工作区，直接打开对应的本地文件夹。
+在 **DSH Desktop** 的工作区列表里右键任意工作区，直接打开对应的本地文件夹，或就地改名。
 
 ![在工作区上右键](docs/preview.png)
 
-一个很小、无网络请求、无子进程的 DSH 客户端插件。它复用 DSH 自带的 Session Remote
+一个很小、无网络请求、无子进程的 DSH 客户端插件。打开文件夹复用 DSH 自带的 Session Remote
 `session.openWorkspacePath()`，所以 Windows 上用资源管理器、macOS 上用 Finder、
-Linux 上用 `xdg-open` 打开路径，行为和 DSH 的「Open In」按钮一致。
+Linux 上用 `xdg-open` 打开路径，行为和 DSH 的「Open In」按钮一致；改名复用 DSH 的
+`workspace.rename` 命令，和侧栏自己的重命名完全等价。
 
 ## 功能
 
 - **打开工作区文件夹**：在系统文件管理器中打开工作区根目录（回车键同样触发）。
 - **在资源管理器中定位**：调用 `action: 'reveal'`，在文件管理器中定位该目录。
+- **重命名工作区**：菜单内直接改名，走 DSH 自带的 `workspace.rename` 命令，
+  与侧栏自己的重命名是同一套逻辑（重启后仍然生效，其他窗口同步看到）；
+  名称为空或与已有工作区重名时会在菜单内提示，不会静默失败。
 - **复制路径**：复制工作区绝对路径到剪贴板。
 - 菜单跟随 DSH 主题（明/暗），支持 `Esc` 关闭、方向键导航、点击外部关闭。
 - 所有图标为内联 SVG；无外部字体、图片、CDN 或网络请求。
@@ -50,10 +54,13 @@ dsh plugin --profile desktop add github:Homeless-Attila/dsh-open-workspace-folde
 
 1. 在左侧工作区树中找到一个工作区。
 2. 右键该工作区行。
-3. 选择「打开工作区文件夹」。
+3. 选择「打开工作区文件夹」，或「重命名工作区」后输入新名称，`Enter` 保存、`Esc` 取消。
 
 如果当前 DSH 运行在普通浏览器里、宿主端不允许打开本地路径，菜单会显示
-「当前窗口不支持打开本地文件夹」，复制路径仍然可用。
+「当前窗口不支持打开本地文件夹」，复制路径与重命名仍然可用。
+
+重命名有两条约束：名称不能为空，且不能和已有工作区重名（侧栏本身也如此）。
+两种错误都会显示在菜单底部，菜单保持打开，方便直接改名重试。
 
 ## 卸载
 
@@ -70,7 +77,8 @@ dsh-open-workspace-folder/
   package.json        # dsh.bundle.patch + dsh.client (platform: web)
   cordis.patch.yml    # 挂载一行 host 插件
   index.js            # host half：空实现，不注册路由、不启动进程
-  client.js           # 全部功能：右键菜单 + Session Remote
+  client.js           # 全部功能：右键菜单 + Session Remote + 重命名
+  test/smoke.test.mjs # 冒烟测试：bundle 能注册、导出正确、无网络调用
   docs/preview.png    # 右键菜单截图
   README.md
   LICENSE
@@ -95,6 +103,18 @@ dsh-open-workspace-folder/
   ```
 
   不需要 host RPC，也不需要自己拼 `explorer.exe` 命令行。
+- 重命名使用宿主已有的工作区服务，不新建通道：
+
+  ```js
+  const remote = ctx.get('remote')
+  const result = await remote.workspace.rename({ workspaceId, title })
+  // { ok: true, value: { workspace } } | { ok: false, error: { code, message } }
+  ```
+
+  客户端服务版 `ctx.get('workspaces').rename(workspaceId, title)` 更直接（失败时抛
+  `workspace rename failed: <code>: <message>`），插件优先用它、退化到
+  `remote.workspace.rename`。常见错误码：`workspace/name-conflict`（重名）、
+  `gateway/bad-request`（名称为空）。
 - 客户端模块额外导出 Cordis 服务注入：
 
   ```js
@@ -115,8 +135,8 @@ dsh-open-workspace-folder/
 ## 开发校验
 
 ```powershell
-node --check client.js
-node --check index.js
+npm run check   # node --check 两个 bundle
+npm test        # node --test：bundle 注册、导出、无网络调用
 ```
 
 开发时另做过一轮隔离测试页验证（菜单注册、定位/打开/复制、`Esc` 关闭、会话行忽略、

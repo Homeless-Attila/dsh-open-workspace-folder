@@ -1,7 +1,7 @@
 {
   "name": "dsh-open-workspace-folder",
-  "version": "1.0.0",
-  "description": "Right-click any workspace in DSH Desktop to open its folder in the system file manager. 在 DSH Desktop 中右键工作区，直接打开对应的本地文件夹。",
+  "version": "1.1.0",
+  "description": "Right-click any workspace in DSH Desktop to open its folder, reveal it in the file manager, or rename the workspace in place. 在 DSH Desktop 中右键工作区，直接打开本地文件夹、在资源管理器中定位，或就地重命名工作区。",
   "license": "MIT",
   "author": "Homeless-Attila",
   "type": "module",
@@ -21,7 +21,8 @@
     "cordis.patch.yml",
     "README.md",
     "LICENSE",
-    "docs"
+    "docs",
+    "test"
   ],
   "repository": {
     "type": "git",
@@ -32,7 +33,8 @@
     "url": "https://github.com/Homeless-Attila/dsh-open-workspace-folder/issues"
   },
   "scripts": {
-    "check": "node --check index.js && node --check client.js"
+    "check": "node --check index.js && node --check client.js",
+    "test": "node --test"
   },
   "dsh": {
     "bundle": {
@@ -57,7 +59,8 @@
     "workspace",
     "context-menu",
     "right-click",
-    "explorer"
+    "explorer",
+    "rename"
   ],
   "engines": {
     "node": ">=18"

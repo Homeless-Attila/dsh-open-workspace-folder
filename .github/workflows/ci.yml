@@ -17,5 +17,7 @@ jobs:
         run: |
           node --check index.js
           node --check client.js
+      - name: Smoke test the client bundle
+        run: node --test
       - name: Validate package.json
         run: node -e "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8'))"

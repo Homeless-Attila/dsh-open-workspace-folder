@@ -6,7 +6,10 @@
  *  - resolves the row's title against the live workspaces snapshot;
  *  - opens, reveals, or copies that workspace path through the built-in
  *    Session Remote (`session.openWorkspacePath`), so DSH Desktop performs the
- *    native Explorer/Finder/xdg-open gesture on the host.
+ *    native Explorer/Finder/xdg-open gesture on the host;
+ *  - renames the workspace in place through `remote.workspace.rename`, the same
+ *    Command the sidebar's own rename action uses, so the title survives a
+ *    restart and every open window sees it.
  *
  * No host route, child process, network request, external asset, or other
  * plugin's DOM is used. The menu closes on outside click, Escape, scroll, or
@@ -153,6 +156,73 @@ window.__ModuleLoader__.load({
 .owf-menu[data-owf-theme="dark"] .owf-item[data-copied="true"] .owf-label {
   color: #86efac;
 }
+.owf-form {
+  padding: 2px 4px 0;
+}
+.owf-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 1px solid var(--owf-border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--owf-fg);
+  font: inherit;
+  outline: none;
+}
+.owf-input:focus {
+  border-color: var(--owf-accent);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, .18);
+}
+.owf-input:disabled {
+  opacity: .55;
+}
+.owf-input::placeholder {
+  color: var(--owf-muted);
+}
+.owf-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.owf-btn {
+  flex: 1;
+  min-height: 30px;
+  padding: 5px 10px;
+  border: 1px solid var(--owf-border);
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.owf-btn:hover:not(:disabled) {
+  background: var(--owf-hover);
+}
+.owf-btn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--owf-accent);
+}
+.owf-btn:disabled {
+  opacity: .42;
+  cursor: default;
+}
+.owf-btn[data-variant="primary"] {
+  border-color: transparent;
+  background: var(--owf-accent);
+  color: #fff;
+}
+.owf-menu[data-owf-theme="dark"] .owf-btn[data-variant="primary"] {
+  color: #101014;
+}
+.owf-keys {
+  margin-top: 6px;
+  color: var(--owf-muted);
+  font-size: 10px;
+  line-height: 14px;
+}
 .owf-sep {
   height: 1px;
   margin: 4px 8px;
@@ -276,7 +346,7 @@ window.__ModuleLoader__.load({
       return {
         title: normalize(workspace.title) || title,
         path: workspace.path,
-        workspaceId: workspace.workspaceId
+        workspaceId: String(workspace.workspaceId ?? workspace.id ?? workspaceId)
       }
     }
 
@@ -289,6 +359,41 @@ window.__ModuleLoader__.load({
       } catch {
         return false
       }
+    }
+
+    function workspaceService() {
+      const ctx = runtime.ctx
+      if (ctx === undefined || ctx === null || typeof ctx.get !== 'function') return undefined
+      return ctx.get('workspaces')
+    }
+
+    function renameFailureMessage(cause) {
+      const raw = cause instanceof Error ? cause.message : String(cause)
+      const match = /workspace\s+rename\s+failed:\s*([^:]+):\s*([\s\S]*)$/.exec(raw)
+      const code = match === null ? '' : match[1].trim()
+      const detail = match === null ? raw : match[2].trim()
+      if (code === 'workspace/name-conflict') return '已有同名工作区，请换一个名称。'
+      if (code === 'gateway/bad-request') return detail === '' ? '名称不能为空。' : detail
+      return detail === '' ? '重命名失败。' : detail
+    }
+
+    async function renameWorkspace(workspaceId, title) {
+      const service = workspaceService()
+      if (service !== undefined && service !== null && typeof service.rename === 'function') {
+        await service.rename(workspaceId, title)
+        return
+      }
+      const remote = remoteOf()
+      if (remote === undefined || remote.workspace === undefined || typeof remote.workspace.rename !== 'function') {
+        throw new Error('未找到 DSH 的工作区接口，请确认 Desktop 已更新。')
+      }
+      const result = await remote.workspace.rename({ workspaceId, title })
+      if (result !== null && typeof result === 'object' && result.ok === true) return
+      const error = result !== null && typeof result === 'object' ? result.error : undefined
+      const code = error !== null && typeof error === 'object' ? String(error.code ?? '') : ''
+      const message = error !== null && typeof error === 'object' ? normalize(error.message) : ''
+      if (code === 'workspace/name-conflict') throw new Error('已有同名工作区，请换一个名称。')
+      throw new Error(message === '' ? '重命名失败。' : message)
     }
 
     async function copyText(text) {
@@ -332,6 +437,10 @@ window.__ModuleLoader__.load({
         copy: [
           'M8 8h10v12H8z',
           'M6 16H4V4h10v2'
+        ],
+        rename: [
+          'M4 20h4l9.5-9.5a2.1 2.1 0 0 0-3-3L5 17z',
+          'M14.5 6.5l3 3'
         ]
       }
       const list = paths[props.kind] || paths.open
@@ -361,7 +470,10 @@ window.__ModuleLoader__.load({
       const [error, setError] = React.useState('')
       const [copied, setCopied] = React.useState(false)
       const [canOpen, setCanOpen] = React.useState(null)
+      const [editing, setEditing] = React.useState(false)
+      const [draft, setDraft] = React.useState('')
       const menuRef = React.useRef(null)
+      const inputRef = React.useRef(null)
       const dark = typeof React.useSyncExternalStore === 'function'
         ? React.useSyncExternalStore(subscribeTheme, getThemeMode) === 'dark'
         : runtime.themeMode === 'dark'
@@ -395,6 +507,8 @@ window.__ModuleLoader__.load({
           setBusy(false)
           setError('')
           setCopied(false)
+          setEditing(false)
+          setDraft('')
           setMenu({
             ...target,
             x: event.clientX,
@@ -413,16 +527,22 @@ window.__ModuleLoader__.load({
           setPos(null)
           setError('')
           setCopied(false)
+          setEditing(false)
+          setDraft('')
         }
         const onPointerDown = (event) => {
           if (menuRef.current !== null && menuRef.current.contains(event.target)) return
           close()
         }
         const onKeyDown = (event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            close()
+          if (event.key !== 'Escape') return
+          event.preventDefault()
+          if (editing) {
+            setEditing(false)
+            setError('')
+            return
           }
+          close()
         }
         const onScroll = () => close()
         document.addEventListener('pointerdown', onPointerDown, true)
@@ -435,7 +555,7 @@ window.__ModuleLoader__.load({
           window.removeEventListener('scroll', onScroll, true)
           window.removeEventListener('resize', onScroll)
         }
-      }, [menu])
+      }, [menu, editing])
 
       React.useLayoutEffect(() => {
         if (menu === null) {
@@ -451,17 +571,27 @@ window.__ModuleLoader__.load({
         if (left + rect.width > window.innerWidth - margin) left = Math.max(margin, window.innerWidth - rect.width - margin)
         if (top + rect.height > window.innerHeight - margin) top = Math.max(margin, window.innerHeight - rect.height - margin)
         setPos((current) => current !== null && current.left === left && current.top === top ? current : { left, top })
-      }, [menu, error, copied, canOpen, busy])
+      }, [menu, error, copied, canOpen, busy, editing])
 
       React.useLayoutEffect(() => {
         if (menu === null) return
+        if (editing) return
         const node = menuRef.current
         if (node === null) return
         const first = node.querySelector('button:not(:disabled)')
         if (first !== null) first.focus({ preventScroll: true })
-      }, [menu])
+      }, [menu, editing])
+
+      React.useLayoutEffect(() => {
+        if (!editing) return
+        const node = inputRef.current
+        if (node === null) return
+        node.focus({ preventScroll: true })
+        node.select()
+      }, [editing])
 
       const onMenuKeyDown = (event) => {
+        if (inputRef.current !== null && event.target === inputRef.current) return
         if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') return
         const node = menuRef.current
         if (node === null) return
@@ -511,17 +641,113 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const submitRename = async () => {
+        if (menu === null || busy) return
+        const title = draft.trim()
+        if (title === '') {
+          setError('名称不能为空。')
+          return
+        }
+        if (title === menu.title) {
+          setEditing(false)
+          setError('')
+          return
+        }
+        setBusy(true)
+        setError('')
+        setCopied(false)
+        try {
+          await renameWorkspace(menu.workspaceId, title)
+          setEditing(false)
+          setDraft('')
+          setMenu(null)
+          setPos(null)
+        } catch (cause) {
+          setError(renameFailureMessage(cause))
+        } finally {
+          setBusy(false)
+        }
+      }
+
+      const beginRename = () => {
+        if (menu === null || busy) return
+        setError('')
+        setCopied(false)
+        setDraft(menu.title)
+        setEditing(true)
+      }
+
+      const cancelRename = () => {
+        setEditing(false)
+        setError('')
+      }
+
       if (menu === null) return null
 
       const style = pos === null ? { left: menu.x, top: menu.y } : { left: pos.left, top: pos.top }
       const openDisabled = busy || canOpen === false
+      const head = React.createElement('div', { key: 'head', className: 'owf-head' }, [
+        React.createElement('div', { key: 'eyebrow', className: 'owf-eyebrow' }, editing ? '重命名工作区' : '工作区'),
+        React.createElement('div', { key: 'title', className: 'owf-title', title: menu.title }, menu.title),
+        React.createElement('div', { key: 'path', className: 'owf-path', title: menu.path }, menu.path)
+      ])
+      const renameForm = [
+        React.createElement('div', { key: 'form', className: 'owf-form' }, [
+          React.createElement('input', {
+            key: 'input',
+            ref: inputRef,
+            className: 'owf-input',
+            type: 'text',
+            value: draft,
+            placeholder: '工作区名称',
+            'aria-label': '工作区名称',
+            maxLength: 200,
+            disabled: busy,
+            onChange: (event) => setDraft(event.target.value),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                event.stopPropagation()
+                submitRename()
+                return
+              }
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
+                cancelRename()
+              }
+            }
+          }),
+          React.createElement('div', { key: 'actions', className: 'owf-actions' }, [
+            React.createElement('button', {
+              key: 'save',
+              type: 'button',
+              className: 'owf-btn',
+              'data-variant': 'primary',
+              disabled: busy || draft.trim() === '',
+              onClick: () => {
+                submitRename()
+              }
+            }, busy ? '保存中…' : '保存'),
+            React.createElement('button', {
+              key: 'cancel',
+              type: 'button',
+              className: 'owf-btn',
+              disabled: busy,
+              onClick: cancelRename
+            }, '取消')
+          ])
+        ]),
+        React.createElement('div', { key: 'keys', className: 'owf-keys' }, 'Enter 保存 · Esc 取消'),
+        error !== '' && React.createElement('div', { key: 'error', className: 'owf-error', role: 'alert' }, error)
+      ]
       return React.createElement(
         'div',
         {
           ref: menuRef,
           className: 'owf-menu',
-          role: 'menu',
-          'aria-label': '工作区操作',
+          role: editing ? 'dialog' : 'menu',
+          'aria-label': editing ? '重命名工作区' : '工作区操作',
           'data-owf-theme': dark ? 'dark' : 'light',
           style,
           onContextMenu: (event) => {
@@ -530,12 +756,7 @@ window.__ModuleLoader__.load({
           },
           onKeyDown: onMenuKeyDown
         },
-        [
-          React.createElement('div', { key: 'head', className: 'owf-head' }, [
-            React.createElement('div', { key: 'eyebrow', className: 'owf-eyebrow' }, '工作区'),
-            React.createElement('div', { key: 'title', className: 'owf-title', title: menu.title }, menu.title),
-            React.createElement('div', { key: 'path', className: 'owf-path', title: menu.path }, menu.path)
-          ]),
+        editing ? [head, ...renameForm] : [
           React.createElement('div', { key: 'sep1', className: 'owf-sep', role: 'separator' }),
           React.createElement(
             'button',
@@ -573,6 +794,23 @@ window.__ModuleLoader__.load({
             ]
           ),
           React.createElement('div', { key: 'sep2', className: 'owf-sep', role: 'separator' }),
+          React.createElement(
+            'button',
+            {
+              key: 'rename',
+              type: 'button',
+              role: 'menuitem',
+              className: 'owf-item',
+              disabled: busy,
+              onClick: () => {
+                beginRename()
+              }
+            },
+            [
+              React.createElement(MenuIcon, { key: 'icon', kind: 'rename' }),
+              React.createElement('span', { key: 'label', className: 'owf-label' }, '重命名工作区')
+            ]
+          ),
           React.createElement(
             'button',
             {
